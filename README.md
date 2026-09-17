@@ -1,6 +1,6 @@
 # Kitmage FluentBooking Integration Monitor
 
-A read-only WordPress monitoring plugin that detects Microsoft/Outlook errors already recorded in FluentBooking data, deduplicates incidents, and sends one plain-text notification per failure episode.
+A read-only WordPress monitoring plugin that detects Microsoft/Outlook errors already recorded in FluentBooking data, deduplicates incidents, and sends one formatted HTML notification per failure episode.
 
 ## Installation
 
@@ -46,6 +46,8 @@ Recipients, subject, and body use controlled string replacement—not WordPress 
 * `[site_name]`, `[site_url]`, `[admin_email]`
 
 The review URL is built with `admin_url()` and targets FluentBooking's Remote Calendars route. Rendered recipients are split on commas, semicolons, or whitespace and every invalid address is discarded.
+
+The body field uses WordPress's built-in TinyMCE/Visual editor with a Text tab for editing HTML. Saved markup is restricted through `wp_kses_post()`, dynamic values are HTML-escaped before insertion, and notifications are sent as `text/html`. Existing plain-text bodies remain usable and their line breaks are converted into paragraphs when sent.
 
 ## Scheduling
 

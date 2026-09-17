@@ -15,7 +15,16 @@ final class Kitmage_FBIM_Monitor {
 		return array(
 			'recipients' => '[admin_email]',
 			'subject'    => 'FluentBooking Outlook Connection Error — [calendar_email]',
-			'body'       => "A FluentBooking Outlook calendar connection error has been detected.\n\nCalendar: [calendar_name]\nCalendar Email: [calendar_email]\nCalendar ID: [calendar_id]\n\nError Code: [error_code]\n\nError:\n[error_message]\n\nDetected:\n[detected_at]\n\nReview the calendar connection:\n[review_url]\n",
+			'body'       => '<p>A FluentBooking Outlook calendar connection error has been detected.</p>
+<p><strong>Calendar:</strong> [calendar_name]<br>
+<strong>Calendar Email:</strong> [calendar_email]<br>
+<strong>Calendar ID:</strong> [calendar_id]</p>
+<p><strong>Error Code:</strong> [error_code]</p>
+<p><strong>Error:</strong><br>
+[error_message]</p>
+<p><strong>Detected:</strong><br>
+[detected_at]</p>
+<p><a href="[review_url]">Review the calendar connection</a></p>',
 		);
 	}
 
@@ -265,7 +274,13 @@ final class Kitmage_FBIM_Monitor {
 		return apply_filters( 'kitmage_fbim_template_variables', $variables, $incident );
 	}
 
-	public function render_template( $template, $incident ) { return strtr( (string) $template, $this->template_variables( $incident ) ); }
+	public function render_template( $template, $incident, $context = 'text' ) {
+		$variables = $this->template_variables( $incident );
+		if ( 'html' === $context ) {
+			$variables = array_map( 'esc_html', $variables );
+		}
+		return strtr( (string) $template, $variables );
+	}
 
 	private function notify( $incident ) {
 		$settings = wp_parse_args( get_option( self::SETTINGS_OPTION, array() ), self::defaults() );
@@ -273,9 +288,10 @@ final class Kitmage_FBIM_Monitor {
 		$emails    = array_values( array_unique( array_filter( array_map( 'sanitize_email', preg_split( '/[,;\s]+/', (string) $raw ) ), 'is_email' ) ) );
 		if ( ! $emails ) { return false; }
 		$subject = apply_filters( 'kitmage_fbim_notification_subject', $this->render_template( $settings['subject'], $incident ), $incident );
-		$body    = apply_filters( 'kitmage_fbim_notification_body', $this->render_template( $settings['body'], $incident ), $incident );
+		$body    = wp_kses_post( wpautop( $this->render_template( $settings['body'], $incident, 'html' ) ) );
+		$body    = wp_kses_post( apply_filters( 'kitmage_fbim_notification_body', $body, $incident ) );
 		$send    = apply_filters( 'kitmage_fbim_send_notification', true, $emails, $subject, $body, $incident );
 		if ( ! $send ) { return false; }
-		return (bool) wp_mail( $emails, wp_strip_all_tags( $subject ), $body, array( 'Content-Type: text/plain; charset=UTF-8' ) );
+		return (bool) wp_mail( $emails, wp_strip_all_tags( $subject ), $body, array( 'Content-Type: text/html; charset=UTF-8' ) );
 	}
 }

@@ -27,7 +27,7 @@ final class Kitmage_FBIM_Admin {
 		return array(
 			'recipients' => sanitize_text_field( isset( $input['recipients'] ) ? wp_unslash( $input['recipients'] ) : $defaults['recipients'] ),
 			'subject' => sanitize_text_field( isset( $input['subject'] ) ? wp_unslash( $input['subject'] ) : $defaults['subject'] ),
-			'body' => sanitize_textarea_field( isset( $input['body'] ) ? wp_unslash( $input['body'] ) : $defaults['body'] ),
+			'body' => wp_kses_post( isset( $input['body'] ) ? wp_unslash( $input['body'] ) : $defaults['body'] ),
 		);
 	}
 	public function section_help() {
@@ -36,7 +36,19 @@ final class Kitmage_FBIM_Admin {
 	public function field( $args ) {
 		$key = $args['key']; $value = wp_parse_args( get_option( Kitmage_FBIM_Monitor::SETTINGS_OPTION, array() ), Kitmage_FBIM_Monitor::defaults() )[ $key ];
 		$name = Kitmage_FBIM_Monitor::SETTINGS_OPTION . '[' . $key . ']';
-		if ( 'body' === $key ) { printf( '<textarea class="large-text code" rows="14" name="%1$s">%2$s</textarea>', esc_attr( $name ), esc_textarea( $value ) ); }
+		if ( 'body' === $key ) {
+			wp_editor(
+				$value,
+				'kitmage_fbim_body_editor',
+				array(
+					'textarea_name' => $name,
+					'textarea_rows' => 14,
+					'media_buttons' => false,
+					'tinymce'       => true,
+					'quicktags'      => true,
+				)
+			);
+		}
 		else { printf( '<input class="regular-text" type="text" name="%1$s" value="%2$s">', esc_attr( $name ), esc_attr( $value ) ); }
 	}
 	public function run_scan() {
