@@ -13,22 +13,22 @@ PHP 7.4 or newer and a normal WordPress installation are required. FluentBooking
 
 ## FluentBooking discovery and assumptions
 
-FluentBooking does not expose a documented public monitoring API. In addition, no FluentBooking installation/source tree is bundled with this repository. To avoid binding to invented model classes or a single plugin release, the scanner uses a defensive, read-only compatibility adapter:
+The target FluentBooking schema stores calendars in `{prefix}fcal_calendars` and integration metadata in `{prefix}fcal_meta`. The scanner uses the confirmed, read-only relationship rather than guessing model classes or searching unrelated tables:
 
-* It discovers the live WordPress-prefixed `fluent_booking_*` tables.
-* It reads the calendars table and discovers relation columns in FluentBooking metadata tables from their actual schema.
-* It selects records containing Outlook/Microsoft/Office 365 provider signals and detects error strings that FluentBooking has persisted for its own Remote Calendars UI.
+* It joins `fcal_calendars.user_id` to `fcal_meta.object_id` only where `object_type = '_outlook_user_token'`.
+* Every matching token/state row is associated with every calendar belonging to that user, so owners with multiple calendars are handled correctly.
+* It inspects only the matching row's `value` for error strings that FluentBooking persisted for its Remote Calendars UI.
 * It never invokes Microsoft directly, refreshes OAuth, or writes FluentBooking data.
 
-This approach monitors persisted integration state rather than proactively testing Microsoft. If a FluentBooking release neither persists its displayed failure nor exposes it through these records, use `aspen_fbim_calendar_snapshots` to provide version-specific sanitized snapshots. A clear unsupported/unavailable message is shown rather than risking a fatal error.
+This approach monitors persisted integration state rather than proactively testing Microsoft. If a later FluentBooking release changes the confirmed schema, the scan returns a clear unavailable/query message rather than searching arbitrary data or risking a fatal error. The `aspen_fbim_calendar_snapshots` filter receives only sanitized snapshots and can adapt them without receiving OAuth state.
 
 ### Calendar email selection
 
-The scanner first looks for a valid email in the related record that identifies itself as Outlook/Microsoft/Office 365. This is the best representation of the connected remote account. If it is unavailable, it explicitly falls back to the calendar's `email`, `host_email`, `author_email`, or `owner_email` value, in that order. It does not substitute the current user or site administrator address for `[calendar_email]`.
+For each `_outlook_user_token` row, FluentBooking stores the connected Outlook account email in `fcal_meta.key`; that exact value supplies `[calendar_email]`. A calendar without a matching token row is not treated as an Outlook integration. The scanner does not substitute a WordPress user, calendar-owner, or administrator email.
 
 ## Detection and credential safety
 
-Detection includes `Outlook Calendar API Error`, any `AADSTS` numeric code, `invalid_grant`, and broader Microsoft/Outlook/Entra authentication, token, grant, expiration, revocation, or failure wording. The AADSTS code is extracted when present. Only a short useful message is stored. Credential-bearing fields, bearer values, and JWT-like values are redacted before diagnostics are inspected; raw integration responses and OAuth records are never stored in monitor history or sent by email.
+The sensitive state is decoded as JSON or safe, object-disabled PHP serialization when possible. Credential-named branches are skipped. Detection includes `Outlook Calendar API Error`, any `AADSTS` numeric code, `invalid_grant`, and broader Microsoft/Outlook/Entra authentication failures. A bounded raw-string fallback locates errors in otherwise opaque formats. The AADSTS code and a short redacted human-readable message are extracted; the raw value is then discarded and is never returned from discovery, stored in monitor history, logged, displayed, or emailed.
 
 ## Incidents and deduplication
 
