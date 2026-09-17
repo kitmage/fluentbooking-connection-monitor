@@ -1,11 +1,11 @@
-# Aspen FluentBooking Integration Monitor
+# Kitmage FluentBooking Integration Monitor
 
 A read-only WordPress monitoring plugin that detects Microsoft/Outlook errors already recorded in FluentBooking data, deduplicates incidents, and sends one plain-text notification per failure episode.
 
 ## Installation
 
-1. Copy this directory to `wp-content/plugins/aspen-fluentbooking-integration-monitor`.
-2. Activate **Aspen FluentBooking Integration Monitor** in **Plugins**.
+1. Copy this directory to `wp-content/plugins/kitmage-fluentbooking-integration-monitor`.
+2. Activate **Kitmage FluentBooking Integration Monitor** in **Plugins**.
 3. Open **Tools → Booking Monitor**, review the recipients, subject, and body, then save.
 4. Use **Run Scan Now** to verify discovery. WordPress mail must be configured separately.
 
@@ -20,7 +20,7 @@ The target FluentBooking schema stores calendars in `{prefix}fcal_calendars` and
 * It inspects only the matching row's `value` for error strings that FluentBooking persisted for its Remote Calendars UI.
 * It never invokes Microsoft directly, refreshes OAuth, or writes FluentBooking data.
 
-This approach monitors persisted integration state rather than proactively testing Microsoft. If a later FluentBooking release changes the confirmed schema, the scan returns a clear unavailable/query message rather than searching arbitrary data or risking a fatal error. The `aspen_fbim_calendar_snapshots` filter receives only sanitized snapshots and can adapt them without receiving OAuth state.
+This approach monitors persisted integration state rather than proactively testing Microsoft. If a later FluentBooking release changes the confirmed schema, the scan returns a clear unavailable/query message rather than searching arbitrary data or risking a fatal error. The `kitmage_fbim_calendar_snapshots` filter receives only sanitized snapshots and can adapt them without receiving OAuth state.
 
 ### Calendar email selection
 
@@ -53,13 +53,13 @@ Activation schedules a duplicate-safe WP-Cron event. It runs every 15 minutes by
 
 ## Hooks
 
-* `aspen_fbim_scan_interval` — recurrence in seconds (minimum 60; reschedule after changing it).
-* `aspen_fbim_calendar_snapshots` — sanitized/version-specific discovery adapter.
-* `aspen_fbim_is_detected_error` — alter error classification.
-* `aspen_fbim_template_variables` — add or alter template replacements.
-* `aspen_fbim_notification_recipients`, `aspen_fbim_notification_subject`, `aspen_fbim_notification_body` — alter rendered mail fields.
-* `aspen_fbim_send_notification` — allow or suppress sending.
-* `aspen_fbim_scan_completed` — observe summary results.
+* `kitmage_fbim_scan_interval` — recurrence in seconds (minimum 60; reschedule after changing it).
+* `kitmage_fbim_calendar_snapshots` — sanitized/version-specific discovery adapter.
+* `kitmage_fbim_is_detected_error` — alter error classification.
+* `kitmage_fbim_template_variables` — add or alter template replacements.
+* `kitmage_fbim_notification_recipients`, `kitmage_fbim_notification_subject`, `kitmage_fbim_notification_body` — alter rendered mail fields.
+* `kitmage_fbim_send_notification` — allow or suppress sending.
+* `kitmage_fbim_scan_completed` — observe summary results.
 
 ## Data removal
 

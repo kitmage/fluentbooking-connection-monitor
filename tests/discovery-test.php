@@ -16,7 +16,7 @@ function sanitize_textarea_field( $value ) { return trim( strip_tags( $value ) )
 function wp_strip_all_tags( $value ) { return strip_tags( $value ); }
 function is_serialized( $value ) { return is_string( $value ) && preg_match( '/^[aObisdN]:/', trim( $value ) ); }
 
-final class Aspen_FBIM_Test_WPDB {
+final class Kitmage_FBIM_Test_WPDB {
 	public $prefix = 'site_';
 	public $queries = array();
 	public function esc_like( $value ) { return addcslashes( $value, '_%\\' ); }
@@ -36,13 +36,13 @@ final class Aspen_FBIM_Test_WPDB {
 		return array(
 			array(
 				'calendar_id' => '14', 'user_id' => '74', 'title' => 'Alli Megill MS, BCBA, LBA',
-				'outlook_meta_id' => '9', 'outlook_email' => 'Alli@aspenbehavioral.com',
+				'outlook_meta_id' => '9', 'outlook_email' => 'Alli@kitmagebehavioral.com',
 				'outlook_state' => '{"access_token":"NEVER-RETURN-THIS","error":"Outlook Calendar API Error: AADSTS50173: The provided grant has expired due to it being revoked"}',
 				'outlook_updated_at' => '2026-09-17 12:00:00',
 			),
 			array(
 				'calendar_id' => '15', 'user_id' => '74', 'title' => 'Alli Follow-up Calendar',
-				'outlook_meta_id' => '9', 'outlook_email' => 'Alli@aspenbehavioral.com',
+				'outlook_meta_id' => '9', 'outlook_email' => 'Alli@kitmagebehavioral.com',
 				'outlook_state' => serialize( array( 'refresh_token' => 'ALSO-SECRET', 'error' => 'invalid_grant: Microsoft token was revoked' ) ),
 				'outlook_updated_at' => '2026-09-17 12:00:00',
 			),
@@ -50,19 +50,19 @@ final class Aspen_FBIM_Test_WPDB {
 	}
 }
 
-require dirname( __DIR__ ) . '/includes/class-aspen-fbim-monitor.php';
+require dirname( __DIR__ ) . '/includes/class-kitmage-fbim-monitor.php';
 
-$GLOBALS['wpdb'] = new Aspen_FBIM_Test_WPDB();
-$method = new ReflectionMethod( 'Aspen_FBIM_Monitor', 'discover' );
+$GLOBALS['wpdb'] = new Kitmage_FBIM_Test_WPDB();
+$method = new ReflectionMethod( 'Kitmage_FBIM_Monitor', 'discover' );
 $method->setAccessible( true );
-$result = $method->invoke( new Aspen_FBIM_Monitor() );
+$result = $method->invoke( new Kitmage_FBIM_Monitor() );
 $snapshot = $result['snapshots'][0];
 
 assert( 2 === $result['calendars_total'] );
 assert( '14' === $snapshot['id'] );
 assert( '74' === $snapshot['user_id'] );
 assert( 'Alli Megill MS, BCBA, LBA' === $snapshot['name'] );
-assert( 'Alli@aspenbehavioral.com' === $snapshot['email'] );
+assert( 'Alli@kitmagebehavioral.com' === $snapshot['email'] );
 assert( 'AADSTS50173' === $snapshot['error_code'] );
 assert( false !== strpos( $snapshot['error_message'], 'expired' ) );
 assert( 2 === count( $result['snapshots'] ) );
