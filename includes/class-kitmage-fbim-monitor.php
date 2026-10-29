@@ -2,7 +2,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-/** Core scheduler, read-only FluentBooking discovery, incident state and mailer. */
+/** Core scheduler, FluentBooking discovery, Outlook keep-alive, incident state and mailer. */
 final class Kitmage_FBIM_Monitor {
 	const CRON_HOOK       = 'kitmage_fbim_scan_event';
 	const CRON_SCHEDULE   = 'kitmage_fbim_every_fifteen_minutes';
@@ -10,9 +10,14 @@ final class Kitmage_FBIM_Monitor {
 	const INCIDENT_OPTION = 'kitmage_fbim_incidents';
 	const STATUS_OPTION   = 'kitmage_fbim_status';
 	const LOCK_TRANSIENT  = 'kitmage_fbim_scan_lock';
+	const KEEPALIVE_CRON_HOOK     = 'kitmage_fbim_keepalive_event';
+	const KEEPALIVE_CRON_SCHEDULE = 'kitmage_fbim_every_week';
+	const KEEPALIVE_STATUS_OPTION = 'kitmage_fbim_keepalive_status';
+	const KEEPALIVE_LOCK_TRANSIENT = 'kitmage_fbim_keepalive_lock';
 
 	public static function defaults() {
 		return array(
+			'keepalive_enabled' => 1,
 			'recipients' => '[admin_email]',
 			'subject'    => 'FluentBooking Outlook Connection Error — [calendar_email]',
 			'body'       => '<p>A FluentBooking Outlook calendar connection error has been detected.</p>
@@ -40,24 +45,42 @@ final class Kitmage_FBIM_Monitor {
 
 	public static function deactivate() {
 		wp_clear_scheduled_hook( self::CRON_HOOK );
+		wp_clear_scheduled_hook( self::KEEPALIVE_CRON_HOOK );
 		delete_transient( self::LOCK_TRANSIENT );
+		delete_transient( self::KEEPALIVE_LOCK_TRANSIENT );
 	}
 
 	public static function schedule() {
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
 			wp_schedule_event( time() + 60, self::CRON_SCHEDULE, self::CRON_HOOK );
 		}
+		self::schedule_keepalive();
+	}
+
+	public static function schedule_keepalive() {
+		$settings = wp_parse_args( get_option( self::SETTINGS_OPTION, array() ), self::defaults() );
+		if ( empty( $settings['keepalive_enabled'] ) ) {
+			wp_clear_scheduled_hook( self::KEEPALIVE_CRON_HOOK );
+			return;
+		}
+		if ( ! wp_next_scheduled( self::KEEPALIVE_CRON_HOOK ) ) {
+			wp_schedule_event( time() + 60, self::KEEPALIVE_CRON_SCHEDULE, self::KEEPALIVE_CRON_HOOK );
+		}
 	}
 
 	public function register_hooks() {
 		add_filter( 'cron_schedules', array( $this, 'cron_schedules' ) );
 		add_action( self::CRON_HOOK, array( $this, 'scan' ) );
+		add_action( self::KEEPALIVE_CRON_HOOK, array( $this, 'keepalive' ) );
 		add_action( 'init', array( __CLASS__, 'schedule' ) );
+		add_action( 'update_option_' . self::SETTINGS_OPTION, array( __CLASS__, 'schedule_keepalive' ), 10, 2 );
 	}
 
 	public function cron_schedules( $schedules ) {
 		$interval = max( 60, (int) apply_filters( 'kitmage_fbim_scan_interval', 15 * MINUTE_IN_SECONDS ) );
 		$schedules[ self::CRON_SCHEDULE ] = array( 'interval' => $interval, 'display' => __( 'Every 15 minutes (Booking Monitor)', 'kitmage-fluentbooking-integration-monitor' ) );
+		$keepalive_interval = max( HOUR_IN_SECONDS, (int) apply_filters( 'kitmage_fbim_keepalive_interval', WEEK_IN_SECONDS ) );
+		$schedules[ self::KEEPALIVE_CRON_SCHEDULE ] = array( 'interval' => $keepalive_interval, 'display' => __( 'Weekly (Outlook Token Keep-Alive)', 'kitmage-fluentbooking-integration-monitor' ) );
 		return $schedules;
 	}
 
@@ -141,6 +164,133 @@ final class Kitmage_FBIM_Monitor {
 		delete_transient( self::LOCK_TRANSIENT );
 		do_action( 'kitmage_fbim_scan_completed', $result );
 		return $result;
+	}
+
+
+	/**
+	 * Exercise each user's stored Outlook connection through FluentBooking's own
+	 * client. No credential columns are fetched and no token is handled here.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function keepalive() {
+		$result = array(
+			'timestamp' => time(), 'attempted' => 0, 'ok' => 0, 'failed' => 0,
+			'skipped' => 0, 'failures' => array(), 'state' => 'completed',
+		);
+		$settings = wp_parse_args( get_option( self::SETTINGS_OPTION, array() ), self::defaults() );
+		if ( empty( $settings['keepalive_enabled'] ) ) {
+			$result['state'] = 'disabled';
+			update_option( self::KEEPALIVE_STATUS_OPTION, $result, false );
+			return $result;
+		}
+		if ( get_transient( self::KEEPALIVE_LOCK_TRANSIENT ) ) {
+			$result['state'] = 'locked';
+			return $result; // Preserve the status of the run holding the lock.
+		}
+		set_transient( self::KEEPALIVE_LOCK_TRANSIENT, 1, 10 * MINUTE_IN_SECONDS );
+
+		try {
+			$targets = $this->discover_keepalive_targets();
+			if ( is_wp_error( $targets ) ) {
+				$result['state'] = $targets->get_error_code();
+				return $this->finish_keepalive( $result );
+			}
+
+			$helper = '\FluentBookingPro\App\Services\Integrations\Calendars\Outlook\OutlookHelper';
+			$calendar = '\FluentBookingPro\App\Services\Integrations\Calendars\Outlook\OutlookCalendar';
+			if ( ! class_exists( $helper ) || ! class_exists( $calendar ) ) {
+				$result['state'] = 'classes_unavailable';
+				$result['skipped'] = count( $targets );
+				return $this->finish_keepalive( $result );
+			}
+
+			foreach ( $targets as $target ) {
+				try {
+					++$result['attempted'];
+					$client = \FluentBookingPro\App\Services\Integrations\Calendars\Outlook\OutlookHelper::getApiClientByUserId( $target['user_id'] );
+					if ( ! is_object( $client ) ) {
+						++$result['skipped'];
+					} elseif ( ! empty( $client->lastError ) ) {
+						++$result['failed'];
+						$result['failures'][] = array(
+							'user_id' => $target['user_id'],
+							'calendar_email' => $target['calendar_email'],
+							'error_code' => $this->keepalive_error_code( $client->lastError ),
+						);
+					} else {
+						++$result['ok'];
+					}
+				} catch ( Throwable $e ) {
+					++$result['failed'];
+					$result['failures'][] = array(
+						'user_id' => $target['user_id'],
+						'calendar_email' => $target['calendar_email'],
+						'error_code' => $this->keepalive_error_code( $e ),
+					);
+				}
+			}
+		} catch ( Throwable $e ) {
+			// Never persist unexpected exception messages (they may contain credentials).
+			$result['state'] = 'unexpected_error';
+		}
+		return $this->finish_keepalive( $result );
+	}
+
+	private function finish_keepalive( $result ) {
+		$result['timestamp'] = time();
+		update_option( self::KEEPALIVE_STATUS_OPTION, $result, false );
+		delete_transient( self::KEEPALIVE_LOCK_TRANSIENT );
+		return $result;
+	}
+
+	/**
+	 * This query is intentionally independent of the calendar join in discover().
+	 * Only WordPress IDs and Outlook account emails are selected, never meta values.
+	 */
+	private function discover_keepalive_targets() {
+		global $wpdb;
+		$meta_table = $wpdb->prefix . 'fcal_meta';
+		$meta_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $meta_table ) ) );
+		if ( $meta_table !== $meta_exists ) {
+			return new WP_Error( 'meta_unavailable' );
+		}
+		$safe_meta = '`' . str_replace( '`', '``', $meta_table ) . '`';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- trusted table identifier; value is prepared.
+		$query = $wpdb->prepare(
+			"SELECT object_id AS user_id, MIN(`key`) AS outlook_email
+			FROM {$safe_meta} WHERE object_type = %s GROUP BY object_id",
+			'_outlook_user_token'
+		);
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- query is prepared immediately above.
+		$rows = $wpdb->get_results( $query, ARRAY_A );
+		if ( null === $rows ) {
+			return new WP_Error( 'query_failed' );
+		}
+		$targets = array();
+		foreach ( $rows as $row ) {
+			$user_id = absint( $row['user_id'] );
+			if ( ! $user_id ) { continue; }
+			$targets[] = array(
+				'user_id' => $user_id,
+				'calendar_email' => sanitize_email( (string) $row['outlook_email'] ),
+			);
+		}
+		return $targets;
+	}
+
+	/** Return only the AADSTS code, never unredacted FluentBooking errors. */
+	private function keepalive_error_code( $error ) {
+		if ( is_wp_error( $error ) ) {
+			$message = (string) $error->get_error_code() . ' ' . $error->get_error_message();
+		} elseif ( $error instanceof Throwable ) {
+			$message = $error->getMessage();
+		} elseif ( is_string( $error ) ) {
+			$message = $error;
+		} else {
+			return '';
+		}
+		return preg_match( '/\b(AADSTS\d+)\b/i', substr( $message, 0, 2000 ), $matches ) ? strtoupper( $matches[1] ) : '';
 	}
 
 	/**
