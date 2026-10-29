@@ -1,0 +1,17 @@
+name: PHP lint and keep-alive smoke tests
+
+on:
+  pull_request:
+
+jobs:
+  php-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint PHP files
+        run: |
+          find . -name '*.php' -print0 | while IFS= read -r -d '' file; do
+            php -l "$file" || exit 1
+          done
+      - name: Keep-alive smoke tests
+        run: php tests/keepalive-smoke.php
