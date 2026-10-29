@@ -166,7 +166,6 @@ final class Kitmage_FBIM_Monitor {
 		return $result;
 	}
 
-
 	/**
 	 * Exercise each user's stored Outlook connection through FluentBooking's own
 	 * client. No credential columns are fetched and no token is handled here.
@@ -191,17 +190,16 @@ final class Kitmage_FBIM_Monitor {
 		set_transient( self::KEEPALIVE_LOCK_TRANSIENT, 1, 10 * MINUTE_IN_SECONDS );
 
 		try {
-			$targets = $this->discover_keepalive_targets();
-			if ( is_wp_error( $targets ) ) {
-				$result['state'] = $targets->get_error_code();
-				return $this->finish_keepalive( $result );
-			}
-
 			$helper = '\FluentBookingPro\App\Services\Integrations\Calendars\Outlook\OutlookHelper';
 			$calendar = '\FluentBookingPro\App\Services\Integrations\Calendars\Outlook\OutlookCalendar';
 			if ( ! class_exists( $helper ) || ! class_exists( $calendar ) ) {
 				$result['state'] = 'classes_unavailable';
-				$result['skipped'] = count( $targets );
+				return $this->finish_keepalive( $result );
+			}
+
+			$targets = $this->discover_keepalive_targets();
+			if ( is_wp_error( $targets ) ) {
+				$result['state'] = $targets->get_error_code();
 				return $this->finish_keepalive( $result );
 			}
 
