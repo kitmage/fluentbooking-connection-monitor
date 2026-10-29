@@ -96,9 +96,11 @@ Kitmage_FBIM_Monitor::schedule();
 check_same( 2, count( $GLOBALS['test_cron'] ), 'Init scheduling is duplicate safe' );
 check_same( 1, get_option( Kitmage_FBIM_Monitor::SETTINGS_OPTION )['keepalive_enabled'], 'Default enabled' );
 
+$GLOBALS['wpdb']->rows = array( array( 'user_id' => 77, 'outlook_email' => 'missing@example.com' ) );
 $missing = $monitor->keepalive();
 check_same( 'classes_unavailable', $missing['state'], 'Missing Outlook classes do not fatal' );
 check_same( 0, $missing['attempted'], 'No calls without classes' );
+check_same( 1, $missing['skipped'], 'Missing Outlook classes classify connected users as skipped' );
 
 class Fake_Outlook_Calendar {
 	public $lastError;
