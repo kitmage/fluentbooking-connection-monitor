@@ -194,6 +194,8 @@ final class Kitmage_FBIM_Monitor {
 			$calendar = '\FluentBookingPro\App\Services\Integrations\Calendars\Outlook\OutlookCalendar';
 			if ( ! class_exists( $helper ) || ! class_exists( $calendar ) ) {
 				$result['state'] = 'classes_unavailable';
+				$skipped = $this->discover_keepalive_targets();
+				$result['skipped'] = is_array( $skipped ) ? count( $skipped ) : 0;
 				return $this->finish_keepalive( $result );
 			}
 
