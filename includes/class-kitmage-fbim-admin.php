@@ -20,11 +20,15 @@ final class Kitmage_FBIM_Admin {
 		foreach ( array( 'recipients' => __( 'Recipients', 'kitmage-fluentbooking-integration-monitor' ), 'subject' => __( 'Subject', 'kitmage-fluentbooking-integration-monitor' ), 'body' => __( 'Body', 'kitmage-fluentbooking-integration-monitor' ) ) as $key => $label ) {
 			add_settings_field( 'kitmage_fbim_' . $key, $label, array( $this, 'field' ), 'kitmage-fbim', 'kitmage_fbim_notifications', array( 'key' => $key ) );
 		}
+		add_settings_section( 'kitmage_fbim_keepalive', __( 'Outlook Token Keep-Alive', 'kitmage-fluentbooking-integration-monitor' ), '__return_false', 'kitmage-fbim' );
+		add_settings_field( 'kitmage_fbim_keepalive_enabled', __( 'Token keep-alive', 'kitmage-fluentbooking-integration-monitor' ), array( $this, 'keepalive_field' ), 'kitmage-fbim', 'kitmage_fbim_keepalive' );
 	}
 	public function sanitize_settings( $input ) {
 		if ( ! current_user_can( 'manage_options' ) ) { return get_option( Kitmage_FBIM_Monitor::SETTINGS_OPTION, Kitmage_FBIM_Monitor::defaults() ); }
 		$defaults = Kitmage_FBIM_Monitor::defaults();
+		$input = is_array( $input ) ? $input : array();
 		return array(
+			'keepalive_enabled' => empty( $input['keepalive_enabled'] ) ? 0 : 1,
 			'recipients' => sanitize_text_field( isset( $input['recipients'] ) ? wp_unslash( $input['recipients'] ) : $defaults['recipients'] ),
 			'subject' => sanitize_text_field( isset( $input['subject'] ) ? wp_unslash( $input['subject'] ) : $defaults['subject'] ),
 			'body' => wp_kses_post( isset( $input['body'] ) ? wp_unslash( $input['body'] ) : $defaults['body'] ),
@@ -50,6 +54,15 @@ final class Kitmage_FBIM_Admin {
 			);
 		}
 		else { printf( '<input class="regular-text" type="text" name="%1$s" value="%2$s">', esc_attr( $name ), esc_attr( $value ) ); }
+	}
+	public function keepalive_field() {
+		$settings = wp_parse_args( get_option( Kitmage_FBIM_Monitor::SETTINGS_OPTION, array() ), Kitmage_FBIM_Monitor::defaults() );
+		printf(
+			'<label><input type="checkbox" name="%1$s" value="1" %2$s> %3$s</label>',
+			esc_attr( Kitmage_FBIM_Monitor::SETTINGS_OPTION . '[keepalive_enabled]' ),
+			checked( ! empty( $settings['keepalive_enabled'] ), true, false ),
+			esc_html__( 'Refresh idle Outlook connections weekly using FluentBooking.', 'kitmage-fluentbooking-integration-monitor' )
+		);
 	}
 	public function run_scan() {
 		$this->authorize( 'kitmage_fbim_scan' );
@@ -79,6 +92,7 @@ final class Kitmage_FBIM_Admin {
 		$notice = get_transient( 'kitmage_fbim_notice_' . get_current_user_id() );
 		if ( $notice ) { delete_transient( 'kitmage_fbim_notice_' . get_current_user_id() ); printf( '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>', esc_attr( $notice['type'] ), esc_html( $notice['message'] ) ); }
 		$status = get_option( Kitmage_FBIM_Monitor::STATUS_OPTION, array() ); $incidents = get_option( Kitmage_FBIM_Monitor::INCIDENT_OPTION, array() );
+		$keepalive = get_option( Kitmage_FBIM_Monitor::KEEPALIVE_STATUS_OPTION, array() );
 		?>
 		<div class="wrap"><h1><?php esc_html_e( 'Booking Monitor', 'kitmage-fluentbooking-integration-monitor' ); ?></h1>
 		<form method="post" action="options.php"><?php settings_fields( 'kitmage_fbim' ); do_settings_sections( 'kitmage-fbim' ); submit_button(); ?></form>
@@ -92,6 +106,28 @@ final class Kitmage_FBIM_Admin {
 		<ul><li><strong><?php esc_html_e( 'Last scan:', 'kitmage-fluentbooking-integration-monitor' ); ?></strong> <?php echo esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $status['scanned_at'] ) ); ?></li>
 		<li><strong><?php esc_html_e( 'Calendars / integrations / active errors:', 'kitmage-fluentbooking-integration-monitor' ); ?></strong> <?php echo esc_html( (int) $status['calendars'] . ' / ' . (int) $status['integrations'] . ' / ' . (int) $status['active_errors'] ); ?></li>
 		<li><strong><?php esc_html_e( 'Last successful notification:', 'kitmage-fluentbooking-integration-monitor' ); ?></strong> <?php $sent = array_filter( (array) $incidents, static function ( $item ) { return ! empty( $item['mail_success'] ); } ); $times = array_column( $sent, 'notified_at' ); echo esc_html( $times ? $this->date( max( $times ) ) : __( 'None', 'kitmage-fluentbooking-integration-monitor' ) ); ?></li></ul><?php endif; ?>
+		<h2><?php esc_html_e( 'Last Outlook Token Keep-Alive Run', 'kitmage-fluentbooking-integration-monitor' ); ?></h2>
+		<?php if ( empty( $keepalive['timestamp'] ) ) : ?>
+		<p><?php esc_html_e( 'No token keep-alive run has been recorded yet.', 'kitmage-fluentbooking-integration-monitor' ); ?></p>
+		<?php else : ?>
+		<ul>
+		<li><strong><?php esc_html_e( 'Last run:', 'kitmage-fluentbooking-integration-monitor' ); ?></strong> <?php echo esc_html( $this->date( $keepalive['timestamp'] ) ); ?></li>
+		<li><strong><?php esc_html_e( 'State:', 'kitmage-fluentbooking-integration-monitor' ); ?></strong> <?php echo esc_html( (string) $keepalive['state'] ); ?></li>
+		<li><strong><?php esc_html_e( 'Attempted / valid or refreshed / failed / skipped:', 'kitmage-fluentbooking-integration-monitor' ); ?></strong> <?php echo esc_html( (int) $keepalive['attempted'] . ' / ' . (int) $keepalive['ok'] . ' / ' . (int) $keepalive['failed'] . ' / ' . (int) $keepalive['skipped'] ); ?></li>
+		</ul>
+		<?php if ( ! empty( $keepalive['failures'] ) ) : ?>
+		<table class="widefat striped"><thead><tr>
+		<th><?php esc_html_e( 'User ID', 'kitmage-fluentbooking-integration-monitor' ); ?></th>
+		<th><?php esc_html_e( 'Outlook email', 'kitmage-fluentbooking-integration-monitor' ); ?></th>
+		<th><?php esc_html_e( 'AADSTS code', 'kitmage-fluentbooking-integration-monitor' ); ?></th>
+		</tr></thead><tbody>
+		<?php foreach ( $keepalive['failures'] as $failure ) : ?>
+		<tr><td><?php echo esc_html( (int) $failure['user_id'] ); ?></td>
+		<td><?php echo esc_html( $failure['calendar_email'] ); ?></td>
+		<td><?php echo esc_html( $failure['error_code'] ); ?></td></tr>
+		<?php endforeach; ?>
+		</tbody></table>
+		<?php endif; endif; ?>
 		<?php if ( $incidents ) : ?><table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Calendar', 'kitmage-fluentbooking-integration-monitor' ); ?></th><th><?php esc_html_e( 'Email', 'kitmage-fluentbooking-integration-monitor' ); ?></th><th><?php esc_html_e( 'Code / message', 'kitmage-fluentbooking-integration-monitor' ); ?></th><th><?php esc_html_e( 'First / last detected', 'kitmage-fluentbooking-integration-monitor' ); ?></th><th><?php esc_html_e( 'Notification', 'kitmage-fluentbooking-integration-monitor' ); ?></th><th><?php esc_html_e( 'Status', 'kitmage-fluentbooking-integration-monitor' ); ?></th></tr></thead><tbody>
 		<?php foreach ( array_reverse( $incidents ) as $incident ) : ?><tr><td><?php echo esc_html( $incident['calendar_name'] . ' (#' . $incident['calendar_id'] . ')' ); ?></td><td><?php echo esc_html( $incident['calendar_email'] ); ?></td><td><strong><?php echo esc_html( $incident['error_code'] ); ?></strong><br><?php echo esc_html( $incident['error_message'] ); ?></td><td><?php echo esc_html( $this->date( $incident['first_detected'] ) . ' / ' . $this->date( $incident['last_detected'] ) ); ?></td><td><?php echo esc_html( $incident['notified_at'] ? ( $incident['mail_success'] ? __( 'Sent ', 'kitmage-fluentbooking-integration-monitor' ) : __( 'Failed ', 'kitmage-fluentbooking-integration-monitor' ) ) . $this->date( $incident['notified_at'] ) : __( 'Not attempted', 'kitmage-fluentbooking-integration-monitor' ) ); ?></td><td><?php echo esc_html( $incident['active'] ? __( 'Active', 'kitmage-fluentbooking-integration-monitor' ) : __( 'Resolved', 'kitmage-fluentbooking-integration-monitor' ) ); ?></td></tr><?php endforeach; ?>
 		</tbody></table><?php endif; ?></div><?php
